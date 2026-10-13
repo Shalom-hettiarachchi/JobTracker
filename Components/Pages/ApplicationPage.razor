@@ -1,0 +1,20 @@
+@page "/applications/{Id:int}"
+@attribute [Authorize]
+@inject NavigationManager Nav
+
+<PageTitle>Application · JobTracker</PageTitle>
+
+<div class="page-head">
+    <a class="btn btn-ghost btn-sm" href="applications"><Icon Name="back" Class="icon-sm" /> All applications</a>
+</div>
+
+<div class="panel" style="max-width: 860px">
+    <div class="panel-body" style="padding: 1.4rem 1.5rem 1.8rem">
+        <ApplicationDetail @key="Id" ApplicationId="Id" OnDeleted="@(() => Nav.NavigateTo("applications"))" />
+    </div>
+</div>
+
+@code {
+    [Parameter]
+    public int Id { get; set; }
+}

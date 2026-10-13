@@ -1,0 +1,179 @@
+@page "/reminders"
+@attribute [Authorize]
+@inherits AuthedComponent
+@inject JobService Jobs
+@inject ToastService Toasts
+
+<PageTitle>Reminders · JobTracker</PageTitle>
+
+<div class="page-head">
+    <div>
+        <h1>Reminders</h1>
+        <p class="page-sub">Follow-ups and to-dos across all your applications.</p>
+    </div>
+    <div class="page-actions">
+        <label class="form-check mb-0">
+            <input type="checkbox" class="form-check-input" @bind="showDone" @bind:after="LoadAsync" />
+            <span class="form-check-label">Show completed</span>
+        </label>
+    </div>
+</div>
+
+@if (reminders is null)
+{
+    <div class="skeleton" style="min-height: 40vh"></div>
+}
+else
+{
+    <div class="grid-3-2">
+        <div class="stack">
+            @if (reminders.Count == 0)
+            {
+                <div class="panel">
+                    <div class="empty big">
+                        <Icon Name="bell" />
+                        <h2>You're all caught up</h2>
+                        <p>Add a reminder to follow up on an application or prepare for an interview.</p>
+                    </div>
+                </div>
+            }
+            @foreach (var group in Groups())
+            {
+                <section class="panel" @key="group.Title">
+                    <div class="panel-head">
+                        <h2 class="group-title @(group.Overdue ? "overdue" : "")">@group.Title <span class="column-count">@group.Items.Count</span></h2>
+                    </div>
+                    <div class="panel-body">
+                        @foreach (var reminder in group.Items)
+                        {
+                            <ReminderRow @key="reminder.Id" Reminder="reminder" ShowApplication OnToggle="ToggleAsync" OnSnooze="SnoozeAsync" OnDelete="DeleteAsync" />
+                        }
+                    </div>
+                </section>
+            }
+        </div>
+
+        <section class="panel" style="align-self: start">
+            <div class="panel-head">
+                <h2>New reminder</h2>
+            </div>
+            <div class="panel-body">
+                @if (apps.Count == 0)
+                {
+                    <div class="empty">Add an application first, then you can set reminders for it.</div>
+                }
+                else
+                {
+                    <div class="stack" style="gap: .8rem">
+                        <div>
+                            <label class="form-label" for="new-reminder-app">Application</label>
+                            <select id="new-reminder-app" class="form-select" @bind="newAppId">
+                                @foreach (var app in apps)
+                                {
+                                    <option value="@app.Id">@app.Company – @app.Position</option>
+                                }
+                            </select>
+                        </div>
+                        <div>
+                            <label class="form-label" for="new-reminder-title">Remind me to</label>
+                            <input id="new-reminder-title" class="form-control" placeholder="Follow up" @bind="newTitle" @bind:event="oninput" />
+                        </div>
+                        <div>
+                            <label class="form-label" for="new-reminder-due">When</label>
+                            <input id="new-reminder-due" type="datetime-local" class="form-control" @bind="newDue" />
+                        </div>
+                        <div class="quick-chips">
+                            <button type="button" class="quick-chip" @onclick="() => QuickDue(1)">Tomorrow</button>
+                            <button type="button" class="quick-chip" @onclick="() => QuickDue(3)">In 3 days</button>
+                            <button type="button" class="quick-chip" @onclick="() => QuickDue(7)">In a week</button>
+                        </div>
+                        <button type="button" class="btn btn-primary" @onclick="AddAsync"><Icon Name="plus" /> Add reminder</button>
+                    </div>
+                }
+            </div>
+        </section>
+    </div>
+}
+
+@code {
+    private sealed record Group(string Title, List<Reminder> Items, bool Overdue = false);
+
+    private List<Reminder>? reminders;
+    private List<JobApplication> apps = [];
+    private bool showDone;
+
+    private int newAppId;
+    private string newTitle = "";
+    private DateTime newDue = DefaultDue(1);
+
+    protected override async Task OnReadyAsync()
+    {
+        apps = (await Jobs.GetApplicationsAsync(UserId)).OrderBy(a => a.Company).ToList();
+        newAppId = apps.FirstOrDefault()?.Id ?? 0;
+        await LoadAsync();
+    }
+
+    private static DateTime DefaultDue(int days) => DateTime.Now.Date.AddDays(days).AddHours(9);
+
+    private void QuickDue(int days) => newDue = DefaultDue(days);
+
+    private async Task LoadAsync() => reminders = await Jobs.GetRemindersAsync(UserId, includeDone: showDone);
+
+    private IEnumerable<Group> Groups()
+    {
+        var today = DateTime.Now.Date;
+        var open = reminders!.Where(r => !r.IsDone).ToList();
+
+        Group[] groups =
+        [
+            new("Overdue", open.Where(r => r.IsOverdue()).ToList(), Overdue: true),
+            new("Later today", open.Where(r => !r.IsOverdue() && r.DueAt.Local().Date == today).ToList()),
+            new("Next 7 days", open.Where(r => r.DueAt.Local().Date > today && r.DueAt.Local().Date <= today.AddDays(7)).ToList()),
+            new("Later", open.Where(r => r.DueAt.Local().Date > today.AddDays(7)).ToList()),
+            new("Completed", reminders!.Where(r => r.IsDone).OrderByDescending(r => r.CompletedAt).ToList())
+        ];
+
+        return groups.Where(g => g.Items.Count > 0);
+    }
+
+    private async Task AddAsync()
+    {
+        var app = apps.FirstOrDefault(a => a.Id == newAppId);
+        if (app is null)
+        {
+            return;
+        }
+
+        var title = string.IsNullOrWhiteSpace(newTitle) ? $"Follow up with {app.Company}" : newTitle;
+        var dueUtc = DateTime.SpecifyKind(newDue, DateTimeKind.Local).ToUniversalTime();
+        await Jobs.AddReminderAsync(UserId, app.Id, title, dueUtc);
+        Toasts.Success($"Reminder set for {dueUtc.DueLabel()}");
+        newTitle = "";
+        newDue = DefaultDue(1);
+        await LoadAsync();
+    }
+
+    private async Task ToggleAsync(Reminder reminder)
+    {
+        await Jobs.SetReminderDoneAsync(UserId, reminder.Id, !reminder.IsDone);
+        if (!reminder.IsDone)
+        {
+            Toasts.Success("Reminder completed");
+        }
+
+        await LoadAsync();
+    }
+
+    private async Task SnoozeAsync((Reminder Reminder, TimeSpan By) snooze)
+    {
+        await Jobs.SnoozeReminderAsync(UserId, snooze.Reminder.Id, snooze.By);
+        Toasts.Info(snooze.By.TotalDays >= 7 ? "Snoozed for a week" : "Snoozed for a day");
+        await LoadAsync();
+    }
+
+    private async Task DeleteAsync(Reminder reminder)
+    {
+        await Jobs.DeleteReminderAsync(UserId, reminder.Id);
+        await LoadAsync();
+    }
+}

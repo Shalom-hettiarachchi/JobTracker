@@ -1,0 +1,52 @@
+<div class="reminder @(Reminder.IsDone ? "done" : "")">
+    <button type="button" class="check @(Reminder.IsDone ? "checked" : "")" @onclick="() => OnToggle.InvokeAsync(Reminder)"
+            aria-label="@(Reminder.IsDone ? "Mark as not done" : "Mark as done")" title="@(Reminder.IsDone ? "Mark as not done" : "Mark as done")">
+        <Icon Name="check" />
+    </button>
+    <div class="body">
+        <div class="title">@Reminder.Title</div>
+        <div class="sub">
+            @if (Reminder.IsDone)
+            {
+                <span>Completed @Reminder.CompletedAt?.Ago()</span>
+            }
+            else
+            {
+                <span class="chip @DueCss"><Icon Name="clock" Class="icon-sm" /> @(Reminder.IsOverdue() ? "Overdue · " : "")@Reminder.DueAt.DueLabel()</span>
+            }
+            @if (ShowApplication && Reminder.JobApplication is { } app)
+            {
+                <a href="applications/@app.Id">@app.Company · @app.Position</a>
+            }
+        </div>
+    </div>
+    <div class="actions">
+        @if (!Reminder.IsDone)
+        {
+            <button type="button" class="btn btn-sm btn-ghost" @onclick="() => OnSnooze.InvokeAsync((Reminder, TimeSpan.FromDays(1)))" title="Snooze for one day">+1 day</button>
+            <button type="button" class="btn btn-sm btn-ghost" @onclick="() => OnSnooze.InvokeAsync((Reminder, TimeSpan.FromDays(7)))" title="Snooze for one week">+1 week</button>
+        }
+        <button type="button" class="btn btn-icon danger" @onclick="() => OnDelete.InvokeAsync(Reminder)" aria-label="Delete reminder" title="Delete reminder">
+            <Icon Name="trash" />
+        </button>
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public Reminder Reminder { get; set; } = default!;
+
+    [Parameter]
+    public bool ShowApplication { get; set; }
+
+    [Parameter]
+    public EventCallback<Reminder> OnToggle { get; set; }
+
+    [Parameter]
+    public EventCallback<(Reminder Reminder, TimeSpan By)> OnSnooze { get; set; }
+
+    [Parameter]
+    public EventCallback<Reminder> OnDelete { get; set; }
+
+    private string DueCss => Reminder.IsOverdue() ? "overdue" : Reminder.IsDueToday() ? "today" : "";
+}

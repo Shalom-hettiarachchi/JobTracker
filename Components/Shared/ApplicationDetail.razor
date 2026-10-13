@@ -1,0 +1,492 @@
+@inherits AuthedComponent
+@inject JobService Jobs
+@inject ToastService Toasts
+
+@if (!loaded)
+{
+    <div class="skeleton" style="min-height: 320px"></div>
+}
+else if (app is null)
+{
+    <div class="empty">
+        <Icon Name="inbox" />
+        This application no longer exists.
+    </div>
+}
+else if (editModel is not null)
+{
+    <ApplicationForm Model="editModel" OnSave="SaveEditAsync" OnCancel="() => editModel = null" />
+}
+else
+{
+    <div class="detail-head">
+        <CompanyAvatar Company="@app.Company" Size="lg" />
+        <div>
+            <h2>@app.Position</h2>
+            <div class="company">
+                @app.Company
+                @if (app.IsArchived)
+                {
+                    <span class="chip ms-1">Archived</span>
+                }
+            </div>
+        </div>
+    </div>
+
+    <div class="stage-picker" role="group" aria-label="Stage">
+        @foreach (var stage in Display.Stages)
+        {
+            var isCurrent = stage == app.Stage;
+            <button type="button" class="stage-pill @stage.Css() @(isCurrent ? "current" : "")" aria-pressed="@isCurrent"
+                    @onclick="() => SetStageAsync(stage)">
+                <span class="stage-dot"></span>@stage.Label()
+            </button>
+        }
+    </div>
+
+    <div class="detail-actions">
+        <button type="button" class="btn btn-sm btn-ghost" @onclick="() => editModel = app.CopyForEdit()">
+            <Icon Name="edit" Class="icon-sm" /> Edit
+        </button>
+        @if (Display.SafeUrl(app.JobUrl) is { } url)
+        {
+            <a class="btn btn-sm btn-ghost" href="@url" target="_blank" rel="noopener noreferrer">
+                <Icon Name="external" Class="icon-sm" /> Job posting
+            </a>
+        }
+        @if (ShowOpenLink)
+        {
+            <a class="btn btn-sm btn-ghost" href="applications/@app.Id">
+                <Icon Name="chevron" Class="icon-sm" /> Full page
+            </a>
+        }
+        <button type="button" class="btn btn-sm btn-ghost" @onclick="ToggleArchiveAsync">
+            <Icon Name="@(app.IsArchived ? "restore" : "archive")" Class="icon-sm" /> @(app.IsArchived ? "Restore" : "Archive")
+        </button>
+        @if (confirmDelete)
+        {
+            <button type="button" class="btn btn-sm btn-danger-soft" @onclick="DeleteAsync">Delete permanently</button>
+            <button type="button" class="btn btn-sm btn-ghost" @onclick="() => confirmDelete = false">Keep</button>
+        }
+        else
+        {
+            <button type="button" class="btn btn-sm btn-ghost" @onclick="() => confirmDelete = true">
+                <Icon Name="trash" Class="icon-sm" /> Delete
+            </button>
+        }
+    </div>
+
+    <div class="tabs" role="tablist">
+        <button type="button" role="tab" class="tab @(tab == Tab.Overview ? "active" : "")" @onclick="() => tab = Tab.Overview">Overview</button>
+        <button type="button" role="tab" class="tab @(tab == Tab.Notes ? "active" : "")" @onclick="() => tab = Tab.Notes">Notes<span class="count">@app.Notes.Count</span></button>
+        <button type="button" role="tab" class="tab @(tab == Tab.Reminders ? "active" : "")" @onclick="() => tab = Tab.Reminders">Reminders<span class="count">@app.Reminders.Count(r => !r.IsDone)</span></button>
+        <button type="button" role="tab" class="tab @(tab == Tab.Contacts ? "active" : "")" @onclick="() => tab = Tab.Contacts">Contacts<span class="count">@app.Contacts.Count</span></button>
+        <button type="button" role="tab" class="tab @(tab == Tab.Activity ? "active" : "")" @onclick="() => tab = Tab.Activity">Activity</button>
+    </div>
+
+    @switch (tab)
+    {
+        case Tab.Overview:
+            <dl class="facts">
+                <div>
+                    <dt>Location</dt>
+                    <dd>@(string.IsNullOrWhiteSpace(app.Location) ? "—" : app.Location) · @app.WorkMode.Label()</dd>
+                </div>
+                <div>
+                    <dt>Salary</dt>
+                    <dd>@(Display.Salary(app) is { Length: > 0 } salary ? salary : "—")</dd>
+                </div>
+                <div>
+                    <dt>Type</dt>
+                    <dd>@app.EmploymentType.Label()</dd>
+                </div>
+                <div>
+                    <dt>Priority</dt>
+                    <dd><span class="priority @app.Priority.ToString().ToLowerInvariant()"><Icon Name="flag" Class="icon-sm" /> @app.Priority</span></dd>
+                </div>
+                <div>
+                    <dt>Source</dt>
+                    <dd>@(string.IsNullOrWhiteSpace(app.Source) ? "—" : app.Source)</dd>
+                </div>
+                <div>
+                    <dt>Applied on</dt>
+                    <dd>@(app.AppliedOn?.ToString("d MMM yyyy") ?? "Not yet")</dd>
+                </div>
+                <div>
+                    <dt>Deadline</dt>
+                    <dd>@(app.Deadline?.ToString("d MMM yyyy") ?? "—")</dd>
+                </div>
+                <div>
+                    <dt>In this stage</dt>
+                    <dd>since @app.StageChangedAt.Local().ToString("d MMM yyyy")</dd>
+                </div>
+                @if (app.TagList.Any())
+                {
+                    <div style="grid-column: 1 / -1">
+                        <dt>Tags</dt>
+                        <dd class="card-tags mt-1">
+                            @foreach (var tag in app.TagList)
+                            {
+                                <span class="chip">@tag</span>
+                            }
+                        </dd>
+                    </div>
+                }
+            </dl>
+            @if (!string.IsNullOrWhiteSpace(app.Description))
+            {
+                <div class="description">@app.Description</div>
+            }
+            break;
+
+        case Tab.Notes:
+            <div class="composer">
+                <textarea class="form-control" rows="3" placeholder="What happened? Interview questions, impressions, next steps…"
+                          aria-label="New note" @bind="noteText" @bind:event="oninput"></textarea>
+                <div class="composer-row">
+                    <select class="form-select form-select-sm filter-select" aria-label="Note type" @bind="noteKind">
+                        @foreach (var kind in Enum.GetValues<NoteKind>())
+                        {
+                            <option value="@kind">@kind</option>
+                        }
+                    </select>
+                    <span class="spacer"></span>
+                    <button type="button" class="btn btn-sm btn-primary" disabled="@string.IsNullOrWhiteSpace(noteText)" @onclick="AddNoteAsync">Add note</button>
+                </div>
+            </div>
+            @if (app.Notes.Count == 0)
+            {
+                <div class="empty"><Icon Name="note" /> No notes yet.</div>
+            }
+            @foreach (var note in app.Notes)
+            {
+                <div class="note" @key="note.Id">
+                    <div class="note-head">
+                        <span class="chip">@note.Kind</span>
+                        <span title="@note.CreatedAt.Local().ToString("f")">@note.CreatedAt.Ago()</span>
+                        <button type="button" class="btn btn-icon danger" aria-label="Delete note" title="Delete note" @onclick="() => DeleteNoteAsync(note)">
+                            <Icon Name="trash" Class="icon-sm" />
+                        </button>
+                    </div>
+                    <div class="note-body">@note.Content</div>
+                </div>
+            }
+            break;
+
+        case Tab.Reminders:
+            <div class="composer">
+                <div class="form-grid">
+                    <div>
+                        <label class="form-label" for="reminder-title">Remind me to</label>
+                        <input id="reminder-title" class="form-control" placeholder="Follow up with @app.Company" @bind="reminderTitle" @bind:event="oninput" />
+                    </div>
+                    <div>
+                        <label class="form-label" for="reminder-due">When</label>
+                        <input id="reminder-due" type="datetime-local" class="form-control" @bind="reminderDue" />
+                    </div>
+                </div>
+                <div class="composer-row">
+                    <div class="quick-chips">
+                        <button type="button" class="quick-chip" @onclick="() => QuickDue(1)">Tomorrow</button>
+                        <button type="button" class="quick-chip" @onclick="() => QuickDue(3)">In 3 days</button>
+                        <button type="button" class="quick-chip" @onclick="() => QuickDue(7)">In a week</button>
+                        <button type="button" class="quick-chip" @onclick="() => QuickDue(14)">In 2 weeks</button>
+                    </div>
+                    <span class="spacer"></span>
+                    <button type="button" class="btn btn-sm btn-primary" @onclick="AddReminderAsync">Add reminder</button>
+                </div>
+            </div>
+            @if (app.Reminders.Count == 0)
+            {
+                <div class="empty"><Icon Name="bell" /> No reminders for this application.</div>
+            }
+            @foreach (var reminder in app.Reminders)
+            {
+                <ReminderRow @key="reminder.Id" Reminder="reminder" OnToggle="ToggleReminderAsync" OnSnooze="SnoozeReminderAsync" OnDelete="DeleteReminderAsync" />
+            }
+            break;
+
+        case Tab.Contacts:
+            @foreach (var contact in app.Contacts)
+            {
+                <div class="contact" @key="contact.Id">
+                    <span class="avatar round" style="--hue: @Display.Hue(contact.Name)">@Display.Initials(contact.Name)</span>
+                    <div class="info">
+                        <div class="name">@contact.Name</div>
+                        @if (!string.IsNullOrWhiteSpace(contact.Role))
+                        {
+                            <div class="muted">@contact.Role</div>
+                        }
+                        <div class="links">
+                            @if (!string.IsNullOrWhiteSpace(contact.Email))
+                            {
+                                <a href="mailto:@contact.Email"><Icon Name="mail" Class="icon-sm" /> @contact.Email</a>
+                            }
+                            @if (!string.IsNullOrWhiteSpace(contact.Phone))
+                            {
+                                <a href="tel:@contact.Phone"><Icon Name="phone" Class="icon-sm" /> @contact.Phone</a>
+                            }
+                            @if (Display.SafeUrl(contact.LinkedIn) is { } profile)
+                            {
+                                <a href="@profile" target="_blank" rel="noopener noreferrer"><Icon Name="external" Class="icon-sm" /> Profile</a>
+                            }
+                        </div>
+                    </div>
+                    <button type="button" class="btn btn-icon" aria-label="Edit contact" title="Edit contact" @onclick="() => EditContact(contact)">
+                        <Icon Name="edit" Class="icon-sm" />
+                    </button>
+                    <button type="button" class="btn btn-icon danger" aria-label="Delete contact" title="Delete contact" @onclick="() => DeleteContactAsync(contact)">
+                        <Icon Name="trash" Class="icon-sm" />
+                    </button>
+                </div>
+            }
+
+            @if (contactModel is null)
+            {
+                @if (app.Contacts.Count == 0)
+                {
+                    <div class="empty"><Icon Name="users" /> Keep track of recruiters and interviewers here.</div>
+                }
+                <button type="button" class="btn btn-sm btn-ghost" @onclick="() => contactModel = new Contact()">
+                    <Icon Name="plus" Class="icon-sm" /> Add contact
+                </button>
+            }
+            else
+            {
+                <EditForm Model="contactModel" OnValidSubmit="SaveContactAsync" class="composer">
+                    <DataAnnotationsValidator />
+                    <div class="form-grid">
+                        <div>
+                            <label class="form-label" for="contact-name">Name *</label>
+                            <InputText id="contact-name" class="form-control" @bind-Value="contactModel.Name" />
+                            <ValidationMessage For="() => contactModel.Name" />
+                        </div>
+                        <div>
+                            <label class="form-label" for="contact-role">Role</label>
+                            <InputText id="contact-role" class="form-control" @bind-Value="contactModel.Role" placeholder="Recruiter, hiring manager…" />
+                        </div>
+                        <div>
+                            <label class="form-label" for="contact-email">Email</label>
+                            <InputText id="contact-email" type="email" class="form-control" @bind-Value="contactModel.Email" />
+                        </div>
+                        <div>
+                            <label class="form-label" for="contact-phone">Phone</label>
+                            <InputText id="contact-phone" class="form-control" @bind-Value="contactModel.Phone" />
+                        </div>
+                        <div class="full">
+                            <label class="form-label" for="contact-linkedin">Profile link</label>
+                            <InputText id="contact-linkedin" class="form-control" @bind-Value="contactModel.LinkedIn" placeholder="https://www.linkedin.com/in/…" />
+                        </div>
+                    </div>
+                    <div class="form-actions">
+                        <button type="button" class="btn btn-sm btn-ghost" @onclick="() => contactModel = null">Cancel</button>
+                        <button type="submit" class="btn btn-sm btn-primary">@(contactModel.Id == 0 ? "Add contact" : "Save contact")</button>
+                    </div>
+                </EditForm>
+            }
+            break;
+
+        case Tab.Activity:
+            <ul class="timeline">
+                @foreach (var entry in app.Activities)
+                {
+                    <li @key="entry.Id">
+                        @entry.Description
+                        <time title="@entry.OccurredAt.Local().ToString("f")">@entry.OccurredAt.Local().ToString("d MMM yyyy, HH:mm")</time>
+                    </li>
+                }
+            </ul>
+            break;
+    }
+}
+
+@code {
+    private enum Tab { Overview, Notes, Reminders, Contacts, Activity }
+
+    private JobApplication? app;
+    private JobApplication? editModel;
+    private Contact? contactModel;
+    private bool loaded;
+    private bool confirmDelete;
+    private Tab tab = Tab.Overview;
+    private int loadedId;
+
+    private string noteText = "";
+    private NoteKind noteKind = NoteKind.Note;
+    private string reminderTitle = "";
+    private DateTime reminderDue = DefaultDue(3);
+
+    [Parameter, EditorRequired]
+    public int ApplicationId { get; set; }
+
+    /// <summary>Shows a link to the application's own page (used when hosted in a drawer).</summary>
+    [Parameter]
+    public bool ShowOpenLink { get; set; }
+
+    [Parameter]
+    public EventCallback OnChanged { get; set; }
+
+    [Parameter]
+    public EventCallback OnDeleted { get; set; }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (loadedId != ApplicationId && UserId.Length > 0)
+        {
+            loadedId = ApplicationId;
+            editModel = null;
+            contactModel = null;
+            confirmDelete = false;
+            await LoadAsync();
+        }
+    }
+
+    private static DateTime DefaultDue(int days) => DateTime.Now.Date.AddDays(days).AddHours(9);
+
+    private async Task LoadAsync()
+    {
+        app = await Jobs.GetApplicationAsync(UserId, ApplicationId);
+        loaded = true;
+    }
+
+    private async Task ReloadAsync()
+    {
+        await LoadAsync();
+        await OnChanged.InvokeAsync();
+    }
+
+    private async Task SetStageAsync(ApplicationStage stage)
+    {
+        if (app is null || app.Stage == stage)
+        {
+            return;
+        }
+
+        await Jobs.MoveAsync(UserId, app.Id, stage, beforeId: null);
+        Toasts.Success($"Moved to {stage.Label()}");
+        await ReloadAsync();
+    }
+
+    private async Task SaveEditAsync(JobApplication edited)
+    {
+        if (await Jobs.UpdateAsync(UserId, edited))
+        {
+            Toasts.Success("Changes saved");
+        }
+        else
+        {
+            Toasts.Error("This application no longer exists");
+        }
+
+        editModel = null;
+        await ReloadAsync();
+    }
+
+    private async Task ToggleArchiveAsync()
+    {
+        if (app is null)
+        {
+            return;
+        }
+
+        var archive = !app.IsArchived;
+        await Jobs.SetArchivedAsync(UserId, app.Id, archive);
+        Toasts.Success(archive ? "Archived – find it under Applications" : "Restored to the board");
+        await ReloadAsync();
+    }
+
+    private async Task DeleteAsync()
+    {
+        if (app is null)
+        {
+            return;
+        }
+
+        await Jobs.DeleteAsync(UserId, app.Id);
+        Toasts.Success($"Deleted {app.Company}");
+        await OnDeleted.InvokeAsync();
+    }
+
+    private async Task AddNoteAsync()
+    {
+        if (app is null || string.IsNullOrWhiteSpace(noteText))
+        {
+            return;
+        }
+
+        await Jobs.AddNoteAsync(UserId, app.Id, noteKind, noteText);
+        noteText = "";
+        noteKind = NoteKind.Note;
+        await ReloadAsync();
+    }
+
+    private async Task DeleteNoteAsync(ApplicationNote note)
+    {
+        await Jobs.DeleteNoteAsync(UserId, note.Id);
+        await ReloadAsync();
+    }
+
+    private void QuickDue(int days) => reminderDue = DefaultDue(days);
+
+    private async Task AddReminderAsync()
+    {
+        if (app is null)
+        {
+            return;
+        }
+
+        var title = string.IsNullOrWhiteSpace(reminderTitle) ? $"Follow up with {app.Company}" : reminderTitle;
+        var dueUtc = DateTime.SpecifyKind(reminderDue, DateTimeKind.Local).ToUniversalTime();
+        await Jobs.AddReminderAsync(UserId, app.Id, title, dueUtc);
+        Toasts.Success($"Reminder set for {dueUtc.DueLabel()}");
+        reminderTitle = "";
+        reminderDue = DefaultDue(3);
+        await ReloadAsync();
+    }
+
+    private async Task ToggleReminderAsync(Reminder reminder)
+    {
+        await Jobs.SetReminderDoneAsync(UserId, reminder.Id, !reminder.IsDone);
+        await ReloadAsync();
+    }
+
+    private async Task SnoozeReminderAsync((Reminder Reminder, TimeSpan By) snooze)
+    {
+        await Jobs.SnoozeReminderAsync(UserId, snooze.Reminder.Id, snooze.By);
+        await ReloadAsync();
+    }
+
+    private async Task DeleteReminderAsync(Reminder reminder)
+    {
+        await Jobs.DeleteReminderAsync(UserId, reminder.Id);
+        await ReloadAsync();
+    }
+
+    private void EditContact(Contact contact) => contactModel = new Contact
+    {
+        Id = contact.Id,
+        Name = contact.Name,
+        Role = contact.Role,
+        Email = contact.Email,
+        Phone = contact.Phone,
+        LinkedIn = contact.LinkedIn
+    };
+
+    private async Task SaveContactAsync()
+    {
+        if (app is null || contactModel is null)
+        {
+            return;
+        }
+
+        await Jobs.SaveContactAsync(UserId, app.Id, contactModel);
+        contactModel = null;
+        await ReloadAsync();
+    }
+
+    private async Task DeleteContactAsync(Contact contact)
+    {
+        await Jobs.DeleteContactAsync(UserId, contact.Id);
+        await ReloadAsync();
+    }
+}

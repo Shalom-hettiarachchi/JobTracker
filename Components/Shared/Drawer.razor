@@ -1,0 +1,29 @@
+@if (Open)
+{
+    <div class="drawer-scrim" @onclick="OnClose"></div>
+    <aside class="drawer" role="dialog" aria-modal="true" aria-label="@Title">
+        <header class="drawer-head">
+            <h2>@Title</h2>
+            <button type="button" class="btn btn-icon" @onclick="OnClose" aria-label="Close">
+                <Icon Name="x" />
+            </button>
+        </header>
+        <div class="drawer-body">
+            @ChildContent
+        </div>
+    </aside>
+}
+
+@code {
+    [Parameter]
+    public bool Open { get; set; }
+
+    [Parameter]
+    public string Title { get; set; } = "";
+
+    [Parameter]
+    public EventCallback OnClose { get; set; }
+
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+}

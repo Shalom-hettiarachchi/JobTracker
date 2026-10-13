@@ -1,0 +1,202 @@
+@page "/applications"
+@attribute [Authorize]
+@inherits AuthedComponent
+@inject JobService Jobs
+@inject ToastService Toasts
+
+<PageTitle>Applications · JobTracker</PageTitle>
+
+<div class="page-head">
+    <div>
+        <h1>Applications</h1>
+        <p class="page-sub">Every application in one sortable list, including archived ones.</p>
+    </div>
+    <div class="page-actions">
+        <div class="search">
+            <Icon Name="search" />
+            <input class="form-control" type="search" placeholder="Search" aria-label="Search applications"
+                   @bind="search" @bind:event="oninput" />
+        </div>
+        <select class="form-select filter-select" aria-label="Filter by stage" @bind="stageFilter">
+            <option value="">All stages</option>
+            @foreach (var stage in Display.Stages)
+            {
+                <option value="@stage">@stage.Label()</option>
+            }
+        </select>
+        <label class="form-check mb-0">
+            <input type="checkbox" class="form-check-input" @bind="showArchived" />
+            <span class="form-check-label">Show archived</span>
+        </label>
+        <a class="btn btn-ghost" href="export/applications.csv" download>
+            <Icon Name="download" /> Export CSV
+        </a>
+        <button type="button" class="btn btn-primary" @onclick="() => draft = new JobApplication()">
+            <Icon Name="plus" /> New
+        </button>
+    </div>
+</div>
+
+@if (apps is null)
+{
+    <div class="skeleton" style="min-height: 50vh"></div>
+}
+else
+{
+    var rows = Rows();
+    <div class="panel">
+        @if (rows.Count == 0)
+        {
+            <div class="empty big">
+                <Icon Name="inbox" />
+                @(apps.Count == 0 ? "No applications yet. Add your first one to get started." : "No applications match these filters.")
+            </div>
+        }
+        else
+        {
+            <div class="table-wrap">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            @foreach (var column in Columns)
+                            {
+                                <th class="sortable @(column.Numeric ? "num" : "")" aria-sort="@(sortKey == column.Key ? (descending ? "descending" : "ascending") : "none")"
+                                    @onclick="() => SortBy(column.Key)">
+                                    @column.Title@(sortKey == column.Key ? (descending ? " ↓" : " ↑") : "")
+                                </th>
+                            }
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var app in rows)
+                        {
+                            var reminder = app.NextReminder;
+                            <tr class="clickable @(app.IsArchived ? "archived" : "")" @key="app.Id" @onclick="() => openId = app.Id">
+                                <td>
+                                    <div class="cell-app">
+                                        <CompanyAvatar Company="@app.Company" />
+                                        <div>
+                                            <b>@app.Position</b>
+                                            <span>@app.Company@(app.IsArchived ? " · archived" : "")</span>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td><span class="stage-badge @app.Stage.Css()">@app.Stage.Label()</span></td>
+                                <td><span class="priority @app.Priority.ToString().ToLowerInvariant()">@app.Priority</span></td>
+                                <td>@app.Location</td>
+                                <td class="num nowrap">@Display.Salary(app)</td>
+                                <td class="nowrap">@app.AppliedOn?.ToString("d MMM yyyy")</td>
+                                <td class="nowrap">
+                                    @if (reminder is not null)
+                                    {
+                                        <span class="chip @(reminder.IsOverdue() ? "overdue" : reminder.IsDueToday() ? "today" : "")" title="@reminder.Title">@reminder.DueAt.DueLabel()</span>
+                                    }
+                                </td>
+                                <td class="nowrap muted">@app.UpdatedAt.Ago()</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </div>
+    <p class="muted mt-2 mb-0" style="font-size: .8rem">@rows.Count of @apps.Count applications</p>
+}
+
+<Drawer Open="openId is not null" Title="Application" OnClose="() => openId = null">
+    @if (openId is int id)
+    {
+        <ApplicationDetail @key="id" ApplicationId="id" ShowOpenLink OnChanged="LoadAsync" OnDeleted="AfterDeleteAsync" />
+    }
+</Drawer>
+
+<Drawer Open="draft is not null" Title="New application" OnClose="() => draft = null">
+    @if (draft is not null)
+    {
+        <ApplicationForm Model="draft" IsNew OnSave="CreateAsync" OnCancel="() => draft = null" />
+    }
+</Drawer>
+
+@code {
+    private sealed record Column(string Key, string Title, bool Numeric = false);
+
+    private static readonly Column[] Columns =
+    [
+        new("company", "Application"),
+        new("stage", "Stage"),
+        new("priority", "Priority"),
+        new("location", "Location"),
+        new("salary", "Salary", Numeric: true),
+        new("applied", "Applied"),
+        new("reminder", "Next reminder"),
+        new("updated", "Updated")
+    ];
+
+    private List<JobApplication>? apps;
+    private string search = "";
+    private string stageFilter = "";
+    private bool showArchived;
+    private string sortKey = "updated";
+    private bool descending = true;
+
+    private int? openId;
+    private JobApplication? draft;
+
+    protected override Task OnReadyAsync() => LoadAsync();
+
+    private async Task LoadAsync() => apps = await Jobs.GetApplicationsAsync(UserId, includeArchived: true);
+
+    private void SortBy(string key)
+    {
+        descending = sortKey == key && !descending;
+        sortKey = key;
+    }
+
+    private List<JobApplication> Rows()
+    {
+        var query = apps!.Where(a => showArchived || !a.IsArchived);
+
+        if (Enum.TryParse<ApplicationStage>(stageFilter, out var stage))
+        {
+            query = query.Where(a => a.Stage == stage);
+        }
+
+        var term = search.Trim();
+        if (term.Length > 0)
+        {
+            query = query.Where(a =>
+                a.Company.Contains(term, StringComparison.OrdinalIgnoreCase)
+                || a.Position.Contains(term, StringComparison.OrdinalIgnoreCase)
+                || (a.Location ?? "").Contains(term, StringComparison.OrdinalIgnoreCase)
+                || (a.Tags ?? "").Contains(term, StringComparison.OrdinalIgnoreCase));
+        }
+
+        Func<JobApplication, IComparable?> key = sortKey switch
+        {
+            "company" => a => a.Company.ToLowerInvariant(),
+            "stage" => a => a.Stage,
+            "priority" => a => a.Priority,
+            "location" => a => (a.Location ?? "").ToLowerInvariant(),
+            "salary" => a => a.SalaryMax ?? a.SalaryMin ?? 0,
+            "applied" => a => a.AppliedOn ?? DateOnly.MinValue,
+            "reminder" => a => a.NextReminder?.DueAt ?? DateTime.MaxValue,
+            _ => a => a.UpdatedAt
+        };
+
+        return (descending ? query.OrderByDescending(key) : query.OrderBy(key)).ToList();
+    }
+
+    private async Task CreateAsync(JobApplication created)
+    {
+        await Jobs.CreateAsync(UserId, created);
+        draft = null;
+        Toasts.Success($"Added {created.Company}");
+        await LoadAsync();
+    }
+
+    private async Task AfterDeleteAsync()
+    {
+        openId = null;
+        await LoadAsync();
+    }
+}

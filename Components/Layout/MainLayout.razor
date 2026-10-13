@@ -1,0 +1,110 @@
+@inherits LayoutComponentBase
+@inject NavigationManager Nav
+
+<AuthorizeView>
+    <Authorized>
+        <div class="shell">
+            <aside class="sidebar">
+                <a class="brand" href="">
+                    <span class="brand-mark"><Icon Name="briefcase" /></span>
+                    JobTracker
+                </a>
+
+                <nav class="nav-group" aria-label="Main">
+                    <div class="nav-label">Workspace</div>
+                    <NavLink class="nav-item-link" href="" Match="NavLinkMatch.All">
+                        <Icon Name="dashboard" /> Dashboard
+                    </NavLink>
+                    <NavLink class="nav-item-link" href="board">
+                        <Icon Name="board" /> Board
+                    </NavLink>
+                    <NavLink class="nav-item-link" href="applications">
+                        <Icon Name="list" /> Applications
+                    </NavLink>
+                    <NavLink class="nav-item-link" href="reminders">
+                        <Icon Name="bell" /> Reminders
+                        <DueCount />
+                    </NavLink>
+                    <NavLink class="nav-item-link" href="insights">
+                        <Icon Name="chart" /> Insights
+                    </NavLink>
+                </nav>
+
+                <div class="sidebar-foot">
+                    <button type="button" class="nav-item-link" data-theme-toggle>
+                        <Icon Name="moon" /> Switch theme
+                    </button>
+                    <a class="user-chip" href="Account/Manage" title="Account settings">
+                        <span class="avatar sm round" style="--hue: 245">@Initial(context.User.Identity?.Name)</span>
+                        <span class="name">@context.User.Identity?.Name</span>
+                    </a>
+                    <form action="Account/Logout" method="post">
+                        <AntiforgeryToken />
+                        <input type="hidden" name="ReturnUrl" value="" />
+                        <button type="submit" class="nav-item-link">
+                            <Icon Name="logout" /> Log out
+                        </button>
+                    </form>
+                </div>
+            </aside>
+            <div class="scrim"></div>
+
+            <div class="main">
+                <div class="topbar">
+                    <button type="button" class="btn btn-icon" data-nav-toggle aria-label="Open menu">
+                        <Icon Name="menu" Class="icon-lg" />
+                    </button>
+                    <a class="brand" href="">
+                        <span class="brand-mark"><Icon Name="briefcase" /></span>
+                        JobTracker
+                    </a>
+                </div>
+                <main class="content">
+                    @Body
+                </main>
+            </div>
+        </div>
+        <ToastHost />
+    </Authorized>
+    <NotAuthorized>
+        <div class="public">
+            <header class="public-bar">
+                <a class="brand" href="">
+                    <span class="brand-mark"><Icon Name="briefcase" /></span>
+                    JobTracker
+                </a>
+                <div class="actions">
+                    <button type="button" class="btn btn-icon" data-theme-toggle aria-label="Switch theme">
+                        <Icon Name="moon" />
+                    </button>
+                    <a class="btn btn-ghost" href="Account/Login">Log in</a>
+                    <a class="btn btn-primary" href="Account/Register">Get started</a>
+                </div>
+            </header>
+            <main class="public-body">
+                @if (IsAccountPage)
+                {
+                    <div class="auth-card">@Body</div>
+                }
+                else
+                {
+                    @Body
+                }
+            </main>
+        </div>
+    </NotAuthorized>
+</AuthorizeView>
+
+<div id="blazor-error-ui" data-nosnippet>
+    An unhandled error has occurred.
+    <a href="." class="reload">Reload</a>
+    <span class="dismiss">🗙</span>
+</div>
+
+@code {
+    private bool IsAccountPage =>
+        Nav.ToBaseRelativePath(Nav.Uri).StartsWith("Account", StringComparison.OrdinalIgnoreCase);
+
+    private static string Initial(string? name) =>
+        string.IsNullOrEmpty(name) ? "?" : name[..1].ToUpperInvariant();
+}

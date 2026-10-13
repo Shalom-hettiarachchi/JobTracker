@@ -1,0 +1,276 @@
+@page "/board"
+@attribute [Authorize]
+@inherits AuthedComponent
+@inject JobService Jobs
+@inject ToastService Toasts
+@inject NavigationManager Nav
+
+<PageTitle>Board · JobTracker</PageTitle>
+
+<div class="page-head">
+    <div>
+        <h1>Board</h1>
+        <p class="page-sub">Drag a card to another column as the application moves forward.</p>
+    </div>
+    <div class="page-actions">
+        <div class="search">
+            <Icon Name="search" />
+            <input class="form-control" type="search" placeholder="Search company, role, tag" aria-label="Search applications"
+                   @bind="search" @bind:event="oninput" />
+        </div>
+        <select class="form-select filter-select" aria-label="Filter by priority" @bind="priorityFilter">
+            <option value="">All priorities</option>
+            @foreach (var priority in Enum.GetValues<Priority>().Reverse())
+            {
+                <option value="@priority">@priority priority</option>
+            }
+        </select>
+        <button type="button" class="btn btn-primary" @onclick="() => StartNew(ApplicationStage.Wishlist)">
+            <Icon Name="plus" /> New application
+        </button>
+    </div>
+</div>
+
+@if (apps is null)
+{
+    <div class="skeleton" style="min-height: 60vh"></div>
+}
+else
+{
+    <div class="board">
+        @foreach (var stage in Display.Stages)
+        {
+            var cards = Column(stage);
+            <section class="column @stage.Css() @(dragging is not null && overStage == stage ? "is-over" : "")" aria-label="@stage.Label()"
+                     @ondragover:preventDefault
+                     @ondragenter="() => Hover(stage, null)"
+                     @ondrop="() => DropAsync(stage, null)">
+                <header class="column-head">
+                    <span class="stage-dot"></span>
+                    @stage.Label()
+                    <span class="column-count">@cards.Count</span>
+                    <button type="button" class="btn btn-icon" title="Add to @stage.Label()" aria-label="Add to @stage.Label()" @onclick="() => StartNew(stage)">
+                        <Icon Name="plus" />
+                    </button>
+                </header>
+                <div class="column-cards">
+                    @foreach (var app in cards)
+                    {
+                        var reminder = app.NextReminder;
+                        <article class="card-app @(dragging?.Id == app.Id ? "is-dragging" : "") @(dragging is not null && overCard == app.Id && dragging.Id != app.Id ? "drop-before" : "")"
+                                 @key="app.Id" draggable="true" tabindex="0"
+                                 @onclick="() => openId = app.Id"
+                                 @onkeydown="e => OpenOnEnter(e, app.Id)"
+                                 @ondragstart="() => dragging = app"
+                                 @ondragend="ResetDrag"
+                                 @ondragenter="() => Hover(stage, app.Id)" @ondragenter:stopPropagation
+                                 @ondrop="() => DropAsync(stage, app.Id)" @ondrop:stopPropagation>
+                            <div class="card-top">
+                                <CompanyAvatar Company="@app.Company" />
+                                <div class="grow">
+                                    <div class="card-title">@app.Position</div>
+                                    <div class="card-company">@app.Company</div>
+                                </div>
+                                @if (app.Priority == Priority.High)
+                                {
+                                    <span class="priority high" title="High priority"><Icon Name="flag" Class="icon-sm" /></span>
+                                }
+                            </div>
+                            <div class="card-meta">
+                                @if (!string.IsNullOrWhiteSpace(app.Location))
+                                {
+                                    <span><Icon Name="pin" Class="icon-sm" /> @app.Location</span>
+                                }
+                                @if (Display.Salary(app) is { Length: > 0 } salary)
+                                {
+                                    <span><Icon Name="cash" Class="icon-sm" /> @salary</span>
+                                }
+                            </div>
+                            @if (app.TagList.Any())
+                            {
+                                <div class="card-tags">
+                                    @foreach (var tag in app.TagList.Take(3))
+                                    {
+                                        <span class="chip">@tag</span>
+                                    }
+                                </div>
+                            }
+                            <div class="card-foot">
+                                @if (reminder is not null)
+                                {
+                                    <span class="chip @(reminder.IsOverdue() ? "overdue" : reminder.IsDueToday() ? "today" : "")" title="@reminder.Title">
+                                        <Icon Name="bell" Class="icon-sm" /> @reminder.DueAt.DueLabel()
+                                    </span>
+                                }
+                                else if (stage == ApplicationStage.Wishlist && app.Deadline is { } deadline)
+                                {
+                                    <span class="chip" title="Application deadline"><Icon Name="calendar" Class="icon-sm" /> Due @deadline.ToString("d MMM")</span>
+                                }
+                                else
+                                {
+                                    <span></span>
+                                }
+                                <span class="card-age" title="Time in this stage">@DaysInStage(app)</span>
+                            </div>
+                        </article>
+                    }
+                    @if (cards.Count == 0)
+                    {
+                        <div class="column-empty">@(HasFilter ? "No matches" : "Drop a card here")</div>
+                    }
+                </div>
+            </section>
+        }
+    </div>
+}
+
+<Drawer Open="openId is not null" Title="Application" OnClose="() => openId = null">
+    @if (openId is int id)
+    {
+        <ApplicationDetail @key="id" ApplicationId="id" ShowOpenLink OnChanged="LoadAsync" OnDeleted="AfterDeleteAsync" />
+    }
+</Drawer>
+
+<Drawer Open="draft is not null" Title="New application" OnClose="() => draft = null">
+    @if (draft is not null)
+    {
+        <ApplicationForm Model="draft" IsNew OnSave="CreateAsync" OnCancel="() => draft = null" />
+    }
+</Drawer>
+
+@code {
+    private List<JobApplication>? apps;
+    private string search = "";
+    private string priorityFilter = "";
+
+    private JobApplication? dragging;
+    private ApplicationStage? overStage;
+    private int? overCard;
+
+    private int? openId;
+    private JobApplication? draft;
+
+    /// <summary>Set by links such as "New application" on the dashboard.</summary>
+    [SupplyParameterFromQuery(Name = "new")]
+    public bool New { get; set; }
+
+    private bool HasFilter => search.Length > 0 || priorityFilter.Length > 0;
+
+    protected override async Task OnReadyAsync()
+    {
+        await LoadAsync();
+        if (New)
+        {
+            StartNew(ApplicationStage.Wishlist);
+            Nav.NavigateTo("board", replace: true);
+        }
+    }
+
+    private async Task LoadAsync() => apps = await Jobs.GetApplicationsAsync(UserId);
+
+    private List<JobApplication> Column(ApplicationStage stage)
+    {
+        var query = apps!.Where(a => a.Stage == stage);
+
+        if (Enum.TryParse<Priority>(priorityFilter, out var priority))
+        {
+            query = query.Where(a => a.Priority == priority);
+        }
+
+        var term = search.Trim();
+        if (term.Length > 0)
+        {
+            query = query.Where(a =>
+                a.Company.Contains(term, StringComparison.OrdinalIgnoreCase)
+                || a.Position.Contains(term, StringComparison.OrdinalIgnoreCase)
+                || (a.Location ?? "").Contains(term, StringComparison.OrdinalIgnoreCase)
+                || (a.Tags ?? "").Contains(term, StringComparison.OrdinalIgnoreCase));
+        }
+
+        return query.OrderBy(a => a.SortOrder).ToList();
+    }
+
+    private static string DaysInStage(JobApplication app)
+    {
+        var days = (int)(DateTime.UtcNow - app.StageChangedAt).TotalDays;
+        return days switch
+        {
+            0 => "today",
+            1 => "1 day",
+            _ => $"{days} days"
+        };
+    }
+
+    private void StartNew(ApplicationStage stage)
+    {
+        openId = null;
+        draft = new JobApplication { Stage = stage };
+    }
+
+    private async Task CreateAsync(JobApplication created)
+    {
+        await Jobs.CreateAsync(UserId, created);
+        draft = null;
+        Toasts.Success($"Added {created.Company} to {created.Stage.Label()}");
+        await LoadAsync();
+    }
+
+    private async Task AfterDeleteAsync()
+    {
+        openId = null;
+        await LoadAsync();
+    }
+
+    private void OpenOnEnter(KeyboardEventArgs e, int id)
+    {
+        if (e.Key == "Enter")
+        {
+            openId = id;
+        }
+    }
+
+    // ---------- Drag and drop ----------
+
+    private void Hover(ApplicationStage stage, int? cardId)
+    {
+        overStage = stage;
+        overCard = cardId;
+    }
+
+    private void ResetDrag()
+    {
+        dragging = null;
+        overStage = null;
+        overCard = null;
+    }
+
+    private async Task DropAsync(ApplicationStage stage, int? beforeId)
+    {
+        var card = dragging;
+        ResetDrag();
+        if (card is null || card.Id == beforeId)
+        {
+            return;
+        }
+
+        var stageChanged = card.Stage != stage;
+        if (!await Jobs.MoveAsync(UserId, card.Id, stage, beforeId))
+        {
+            Toasts.Error("That application no longer exists");
+        }
+        else if (stageChanged)
+        {
+            Toasts.Success($"{card.Company} moved to {stage.Label()}");
+
+            // Applying is the moment a follow-up is most often forgotten, so set one automatically.
+            if (stage == ApplicationStage.Applied && card.NextReminder is null)
+            {
+                var due = DateTime.Now.Date.AddDays(7).AddHours(9).ToUniversalTime();
+                await Jobs.AddReminderAsync(UserId, card.Id, $"Follow up with {card.Company}", due);
+                Toasts.Info($"Follow-up reminder set for {due.DueLabel()}");
+            }
+        }
+
+        await LoadAsync();
+    }
+}

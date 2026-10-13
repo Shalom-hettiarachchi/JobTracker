@@ -1,0 +1,171 @@
+<EditForm Model="Model" OnValidSubmit="SubmitAsync">
+    <DataAnnotationsValidator />
+
+    <div class="form-grid">
+        <div>
+            <label class="form-label" for="app-company">Company *</label>
+            <InputText id="app-company" class="form-control" @bind-Value="Model.Company" placeholder="e.g. Northwind Labs" />
+            <ValidationMessage For="() => Model.Company" />
+        </div>
+        <div>
+            <label class="form-label" for="app-position">Position *</label>
+            <InputText id="app-position" class="form-control" @bind-Value="Model.Position" placeholder="e.g. Backend Engineer" />
+            <ValidationMessage For="() => Model.Position" />
+        </div>
+
+        <div>
+            <label class="form-label" for="app-stage">Stage</label>
+            <InputSelect id="app-stage" class="form-select" @bind-Value="Model.Stage">
+                @foreach (var stage in Display.Stages)
+                {
+                    <option value="@stage">@stage.Label()</option>
+                }
+            </InputSelect>
+        </div>
+        <div>
+            <label class="form-label" for="app-priority">Priority</label>
+            <InputSelect id="app-priority" class="form-select" @bind-Value="Model.Priority">
+                @foreach (var priority in Enum.GetValues<Priority>())
+                {
+                    <option value="@priority">@priority</option>
+                }
+            </InputSelect>
+        </div>
+
+        <div>
+            <label class="form-label" for="app-location">Location</label>
+            <InputText id="app-location" class="form-control" @bind-Value="Model.Location" placeholder="City, country" />
+        </div>
+        <div>
+            <label class="form-label" for="app-mode">Work mode</label>
+            <InputSelect id="app-mode" class="form-select" @bind-Value="Model.WorkMode">
+                @foreach (var mode in Enum.GetValues<WorkMode>())
+                {
+                    <option value="@mode">@mode.Label()</option>
+                }
+            </InputSelect>
+        </div>
+
+        <div>
+            <label class="form-label" for="app-type">Employment type</label>
+            <InputSelect id="app-type" class="form-select" @bind-Value="Model.EmploymentType">
+                @foreach (var type in Enum.GetValues<EmploymentType>())
+                {
+                    <option value="@type">@type.Label()</option>
+                }
+            </InputSelect>
+        </div>
+        <div>
+            <label class="form-label" for="app-source">Source</label>
+            <InputText id="app-source" class="form-control" @bind-Value="Model.Source" list="app-source-options" placeholder="Where did you find it?" />
+            <datalist id="app-source-options">
+                @foreach (var source in Display.Sources)
+                {
+                    <option value="@source"></option>
+                }
+            </datalist>
+        </div>
+
+        <div class="full form-grid-3">
+            <div>
+                <label class="form-label" for="app-salary-min">Salary from</label>
+                <InputNumber id="app-salary-min" class="form-control" @bind-Value="Model.SalaryMin" placeholder="60000" />
+                <ValidationMessage For="() => Model.SalaryMin" />
+            </div>
+            <div>
+                <label class="form-label" for="app-salary-max">Salary to</label>
+                <InputNumber id="app-salary-max" class="form-control" @bind-Value="Model.SalaryMax" placeholder="75000" />
+                <ValidationMessage For="() => Model.SalaryMax" />
+            </div>
+            <div>
+                <label class="form-label" for="app-currency">Currency</label>
+                <InputSelect id="app-currency" class="form-select" @bind-Value="Model.Currency">
+                    @foreach (var currency in Display.Currencies)
+                    {
+                        <option value="@currency">@currency</option>
+                    }
+                </InputSelect>
+            </div>
+        </div>
+
+        <div>
+            <label class="form-label" for="app-applied">Applied on</label>
+            <InputDate id="app-applied" class="form-control" @bind-Value="Model.AppliedOn" />
+        </div>
+        <div>
+            <label class="form-label" for="app-deadline">Application deadline</label>
+            <InputDate id="app-deadline" class="form-control" @bind-Value="Model.Deadline" />
+        </div>
+
+        <div class="full">
+            <label class="form-label" for="app-url">Job posting link</label>
+            <InputText id="app-url" class="form-control" @bind-Value="Model.JobUrl" placeholder="https://" />
+            <ValidationMessage For="() => Model.JobUrl" />
+        </div>
+        <div class="full">
+            <label class="form-label" for="app-tags">Tags</label>
+            <InputText id="app-tags" class="form-control" @bind-Value="Model.Tags" placeholder="backend, fintech, remote" />
+            <div class="form-text">Separate tags with commas.</div>
+        </div>
+        <div class="full">
+            <label class="form-label" for="app-description">Job description</label>
+            <InputTextArea id="app-description" class="form-control" rows="6" @bind-Value="Model.Description"
+                           placeholder="Paste the posting here – listings often disappear once they close." />
+        </div>
+    </div>
+
+    @if (error is not null)
+    {
+        <div class="validation-message mt-2" role="alert">@error</div>
+    }
+
+    <div class="form-actions">
+        <button type="button" class="btn btn-ghost" @onclick="OnCancel">Cancel</button>
+        <button type="submit" class="btn btn-primary" disabled="@saving">
+            @(IsNew ? "Add application" : "Save changes")
+        </button>
+    </div>
+</EditForm>
+
+@code {
+    private string? error;
+    private bool saving;
+
+    [Parameter, EditorRequired]
+    public JobApplication Model { get; set; } = default!;
+
+    [Parameter]
+    public bool IsNew { get; set; }
+
+    [Parameter]
+    public EventCallback<JobApplication> OnSave { get; set; }
+
+    [Parameter]
+    public EventCallback OnCancel { get; set; }
+
+    private async Task SubmitAsync()
+    {
+        if (Model.SalaryMin is int min && Model.SalaryMax is int max && max < min)
+        {
+            error = "\"Salary to\" must be at least \"Salary from\".";
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(Model.JobUrl) && Display.SafeUrl(Model.JobUrl) is null)
+        {
+            error = "The job posting link must be a web address (http or https).";
+            return;
+        }
+
+        error = null;
+        saving = true;
+        try
+        {
+            await OnSave.InvokeAsync(Model);
+        }
+        finally
+        {
+            saving = false;
+        }
+    }
+}

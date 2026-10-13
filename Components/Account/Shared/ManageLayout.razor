@@ -1,0 +1,22 @@
+@inherits LayoutComponentBase
+@layout JobTracker.Components.Layout.MainLayout
+
+<div class="page-head">
+    <div>
+        <h1>Account</h1>
+        <p class="page-sub">Change your account settings.</p>
+    </div>
+</div>
+
+<div class="panel" style="max-width: 980px">
+    <div class="panel-body" style="padding: 1.4rem 1.5rem">
+        <div class="row">
+            <div class="col-lg-3 account-nav mb-3">
+                <ManageNavMenu />
+            </div>
+            <div class="col-lg-9">
+                @Body
+            </div>
+        </div>
+    </div>
+</div>

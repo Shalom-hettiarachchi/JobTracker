@@ -1,0 +1,64 @@
+@page "/"
+
+<AuthorizeView>
+    <Authorized>
+        <Dashboard />
+    </Authorized>
+    <NotAuthorized>
+        <PageTitle>JobTracker – organise your job search</PageTitle>
+
+        <section class="hero">
+            <div>
+                <h1>Your job search, organised.</h1>
+                <p class="lead">
+                    Track every application on a kanban board, keep interview notes next to the role,
+                    and get reminded to follow up before an opportunity goes cold.
+                </p>
+                <div class="cta">
+                    <a class="btn btn-primary btn-lg" href="Account/Register">Get started</a>
+                    <a class="btn btn-ghost btn-lg" href="Account/Login">Log in</a>
+                </div>
+            </div>
+            <div class="hero-art" aria-hidden="true">
+                <div class="hero-col stage-applied">
+                    <div class="hero-col-title">Applied</div>
+                    <div class="hero-card"><b>Backend Engineer</b><span>Fabrikam Cloud</span></div>
+                    <div class="hero-card"><b>API Developer</b><span>Wide World Importers</span></div>
+                    <div class="hero-card"><b>Software Engineer II</b><span>Adventure Works</span></div>
+                </div>
+                <div class="hero-col stage-interview">
+                    <div class="hero-col-title">Interview</div>
+                    <div class="hero-card"><b>Senior .NET Developer</b><span>Northwind Labs</span></div>
+                    <div class="hero-card"><b>Frontend Engineer</b><span>Graphic Design Institute</span></div>
+                </div>
+                <div class="hero-col stage-offer">
+                    <div class="hero-col-title">Offer</div>
+                    <div class="hero-card"><b>Full Stack Engineer</b><span>Contoso Health</span></div>
+                </div>
+            </div>
+        </section>
+
+        <section class="features">
+            <div class="feature">
+                <div class="feature-icon"><Icon Name="board" /></div>
+                <h3>Kanban board</h3>
+                <p>Drag applications from Wishlist to Offer and see your whole pipeline at a glance.</p>
+            </div>
+            <div class="feature">
+                <div class="feature-icon"><Icon Name="note" /></div>
+                <h3>Notes &amp; contacts</h3>
+                <p>Keep interview notes, recruiter details and the job description with each role.</p>
+            </div>
+            <div class="feature">
+                <div class="feature-icon"><Icon Name="bell" /></div>
+                <h3>Follow-up reminders</h3>
+                <p>Set reminders, snooze them, and see what is overdue the moment you log in.</p>
+            </div>
+            <div class="feature">
+                <div class="feature-icon"><Icon Name="chart" /></div>
+                <h3>Insights</h3>
+                <p>Learn which sources lead to interviews and where applications stall.</p>
+            </div>
+        </section>
+    </NotAuthorized>
+</AuthorizeView>

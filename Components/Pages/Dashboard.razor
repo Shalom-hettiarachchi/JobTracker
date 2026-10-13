@@ -1,0 +1,281 @@
+@inherits AuthedComponent
+@inject JobService Jobs
+@inject SampleData Samples
+@inject ToastService Toasts
+
+<PageTitle>Dashboard · JobTracker</PageTitle>
+
+<div class="page-head">
+    <div>
+        <h1>@Greeting</h1>
+        <p class="page-sub">@DateTime.Now.ToString("dddd, d MMMM") · here is where your job search stands.</p>
+    </div>
+    <div class="page-actions">
+        <a class="btn btn-ghost" href="board"><Icon Name="board" /> Open board</a>
+        <a class="btn btn-primary" href="board?new=true"><Icon Name="plus" /> New application</a>
+    </div>
+</div>
+
+@if (apps is null)
+{
+    <div class="skeleton" style="min-height: 420px"></div>
+}
+else if (apps.Count == 0)
+{
+    <div class="panel">
+        <div class="empty big">
+            <Icon Name="briefcase" />
+            <h2>No applications yet</h2>
+            <p>Add a role you are interested in, or load a sample job search to explore the app.</p>
+            <div class="cta">
+                <a class="btn btn-primary" href="board?new=true"><Icon Name="plus" /> Add an application</a>
+                <button type="button" class="btn btn-ghost" disabled="@seeding" @onclick="LoadSamplesAsync">Load sample data</button>
+            </div>
+        </div>
+    </div>
+}
+else
+{
+    <div class="kpis">
+        <div class="kpi">
+            <div class="kpi-label"><Icon Name="briefcase" Class="icon-sm" /> In progress</div>
+            <div class="kpi-value">@inProgress</div>
+            <div class="kpi-foot">@Count(ApplicationStage.Wishlist) on your wishlist</div>
+        </div>
+        <div class="kpi">
+            <div class="kpi-label"><Icon Name="calendar" Class="icon-sm" /> Applied this week</div>
+            <div class="kpi-value">@appliedThisWeek</div>
+            <div class="kpi-foot">@appliedLastWeek last week</div>
+        </div>
+        <div class="kpi">
+            <div class="kpi-label"><Icon Name="users" Class="icon-sm" /> Interviewing</div>
+            <div class="kpi-value">@Count(ApplicationStage.Interview)</div>
+            <div class="kpi-foot">@Count(ApplicationStage.Screening) in screening</div>
+        </div>
+        <div class="kpi">
+            <div class="kpi-label"><Icon Name="check" Class="icon-sm" /> Offers</div>
+            <div class="kpi-value">@(Count(ApplicationStage.Offer) + Count(ApplicationStage.Accepted))</div>
+            <div class="kpi-foot">@Count(ApplicationStage.Accepted) accepted</div>
+        </div>
+        <div class="kpi">
+            <div class="kpi-label"><Icon Name="activity" Class="icon-sm" /> Response rate</div>
+            <div class="kpi-value">@(sent == 0 ? "—" : $"{100 * responded / sent}%")</div>
+            <div class="kpi-foot">@responded of @sent applications sent</div>
+        </div>
+    </div>
+
+    <div class="grid-3-2">
+        <div class="stack">
+            <section class="panel">
+                <div class="panel-head">
+                    <h2>Applications sent per week</h2>
+                </div>
+                <p class="panel-note">Last 8 weeks, by the date you applied</p>
+                <div class="panel-body">
+                    <div class="vbars wide-gap" role="img" aria-label="Applications sent per week for the last 8 weeks">
+                        @foreach (var week in weeks)
+                        {
+                            <div class="vbar">
+                                <span class="tip">Week of @week.Start.ToString("d MMM"): @week.Count sent</span>
+                                @if (week.Count > 0)
+                                {
+                                    <span class="vbar-value">@week.Count</span>
+                                }
+                                <div class="vbar-fill" style="height: @(100 * week.Count / weekMax)%"></div>
+                            </div>
+                        }
+                    </div>
+                    <div class="vbar-axis wide-gap" aria-hidden="true">
+                        @foreach (var week in weeks)
+                        {
+                            <span>@week.Start.ToString("d MMM")</span>
+                        }
+                    </div>
+                </div>
+            </section>
+
+            <section class="panel">
+                <div class="panel-head">
+                    <h2>Pipeline</h2>
+                    <a href="board">Open board</a>
+                </div>
+                <p class="panel-note">Where your applications are right now</p>
+                <div class="panel-body">
+                    <div class="hbar-list">
+                        @foreach (var stage in Display.Stages)
+                        {
+                            var count = Count(stage);
+                            <div class="hbar @stage.Css()" title="@stage.Label(): @count">
+                                <span class="hbar-label"><span class="stage-dot"></span>@stage.Label()</span>
+                                <div class="hbar-track">
+                                    @if (count > 0)
+                                    {
+                                        <div class="hbar-fill" style="width: @(100 * count / stageMax)%"></div>
+                                    }
+                                </div>
+                                <span class="hbar-value">@count</span>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </section>
+
+            @if (stale.Count > 0)
+            {
+                <section class="panel">
+                    <div class="panel-head">
+                        <h2>Going quiet</h2>
+                    </div>
+                    <p class="panel-note">No updates for two weeks and no reminder set</p>
+                    <div class="panel-body">
+                        @foreach (var app in stale)
+                        {
+                            <div class="activity-row" @key="app.Id">
+                                <CompanyAvatar Company="@app.Company" Size="sm" />
+                                <div class="what">
+                                    <a href="applications/@app.Id">@app.Company</a> · @app.Position
+                                    <div class="muted">@app.Stage.Label() · last update @app.UpdatedAt.Ago()</div>
+                                </div>
+                                <button type="button" class="btn btn-sm btn-ghost ms-auto nowrap" @onclick="() => FollowUpAsync(app)">
+                                    <Icon Name="bell" Class="icon-sm" /> Remind me tomorrow
+                                </button>
+                            </div>
+                        }
+                    </div>
+                </section>
+            }
+        </div>
+
+        <div class="stack">
+            <section class="panel">
+                <div class="panel-head">
+                    <h2>Reminders</h2>
+                    <a href="reminders">View all</a>
+                </div>
+                <div class="panel-body">
+                    @if (reminders.Count == 0)
+                    {
+                        <div class="empty"><Icon Name="bell" /> Nothing due. Add reminders from any application.</div>
+                    }
+                    @foreach (var reminder in reminders.Take(6))
+                    {
+                        <ReminderRow @key="reminder.Id" Reminder="reminder" ShowApplication OnToggle="CompleteAsync" OnSnooze="SnoozeAsync" OnDelete="DeleteReminderAsync" />
+                    }
+                </div>
+            </section>
+
+            <section class="panel">
+                <div class="panel-head">
+                    <h2>Recent activity</h2>
+                </div>
+                <div class="panel-body">
+                    @foreach (var entry in activity)
+                    {
+                        <div class="activity-row" @key="entry.Id">
+                            <CompanyAvatar Company="@(entry.JobApplication?.Company ?? "")" Size="sm" />
+                            <div class="what">
+                                <a href="applications/@entry.JobApplicationId">@entry.JobApplication?.Company</a>
+                                <div class="muted">@entry.Description</div>
+                            </div>
+                            <span class="when">@entry.OccurredAt.Ago()</span>
+                        </div>
+                    }
+                </div>
+            </section>
+        </div>
+    </div>
+}
+
+@code {
+    private sealed record Week(DateTime Start, int Count);
+
+    private List<JobApplication>? apps;
+    private List<Reminder> reminders = [];
+    private List<ActivityEntry> activity = [];
+    private List<JobApplication> stale = [];
+    private List<Week> weeks = [];
+    private int inProgress, appliedThisWeek, appliedLastWeek, sent, responded, weekMax = 1, stageMax = 1;
+    private bool seeding;
+
+    private static string Greeting => DateTime.Now.Hour switch
+    {
+        < 12 => "Good morning",
+        < 18 => "Good afternoon",
+        _ => "Good evening"
+    };
+
+    protected override Task OnReadyAsync() => LoadAsync();
+
+    private int Count(ApplicationStage stage) => apps?.Count(a => a.Stage == stage) ?? 0;
+
+    private async Task LoadAsync()
+    {
+        var loaded = await Jobs.GetApplicationsAsync(UserId);
+        reminders = await Jobs.GetRemindersAsync(UserId);
+        activity = await Jobs.GetRecentActivityAsync(UserId, 8);
+        apps = loaded;
+
+        inProgress = loaded.Count(a => a.Stage is not ApplicationStage.Wishlist && !a.Stage.IsClosed());
+
+        var thisWeek = DateOnly.FromDateTime(Display.StartOfWeek(DateTime.Now));
+        appliedThisWeek = loaded.Count(a => a.AppliedOn >= thisWeek);
+        appliedLastWeek = loaded.Count(a => a.AppliedOn >= thisWeek.AddDays(-7) && a.AppliedOn < thisWeek);
+
+        sent = loaded.Count(a => a.FurthestStage >= ApplicationStage.Applied);
+        responded = loaded.Count(a => a.FurthestStage >= ApplicationStage.Screening || a.Stage == ApplicationStage.Rejected);
+
+        weeks = Enumerable.Range(0, 8)
+            .Select(i => thisWeek.AddDays(-7 * (7 - i)))
+            .Select(start => new Week(
+                start.ToDateTime(TimeOnly.MinValue),
+                loaded.Count(a => a.AppliedOn >= start && a.AppliedOn < start.AddDays(7))))
+            .ToList();
+        weekMax = Math.Max(1, weeks.Max(w => w.Count));
+        stageMax = Math.Max(1, Display.Stages.Max(s => Count(s)));
+
+        var quietSince = DateTime.UtcNow.AddDays(-14);
+        stale = loaded
+            .Where(a => a.Stage is ApplicationStage.Applied or ApplicationStage.Screening or ApplicationStage.Interview)
+            .Where(a => a.UpdatedAt < quietSince && a.NextReminder is null)
+            .OrderBy(a => a.UpdatedAt)
+            .Take(5)
+            .ToList();
+    }
+
+    private async Task LoadSamplesAsync()
+    {
+        seeding = true;
+        await Samples.SeedAsync(UserId);
+        Jobs.NotifyChanged();
+        await LoadAsync();
+        seeding = false;
+        Toasts.Success("Sample job search loaded");
+    }
+
+    private async Task FollowUpAsync(JobApplication app)
+    {
+        var due = DateTime.Now.Date.AddDays(1).AddHours(9).ToUniversalTime();
+        await Jobs.AddReminderAsync(UserId, app.Id, $"Follow up with {app.Company}", due);
+        Toasts.Success($"Reminder set for {due.DueLabel()}");
+        await LoadAsync();
+    }
+
+    private async Task CompleteAsync(Reminder reminder)
+    {
+        await Jobs.SetReminderDoneAsync(UserId, reminder.Id, true);
+        Toasts.Success("Reminder completed");
+        await LoadAsync();
+    }
+
+    private async Task SnoozeAsync((Reminder Reminder, TimeSpan By) snooze)
+    {
+        await Jobs.SnoozeReminderAsync(UserId, snooze.Reminder.Id, snooze.By);
+        await LoadAsync();
+    }
+
+    private async Task DeleteReminderAsync(Reminder reminder)
+    {
+        await Jobs.DeleteReminderAsync(UserId, reminder.Id);
+        await LoadAsync();
+    }
+}

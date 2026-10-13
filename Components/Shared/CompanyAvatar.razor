@@ -1,0 +1,10 @@
+<span class="avatar @Size" style="--hue: @Display.Hue(Company)" aria-hidden="true">@Display.Initials(Company)</span>
+
+@code {
+    [Parameter, EditorRequired]
+    public string Company { get; set; } = "";
+
+    /// <summary>"sm", "lg" or empty for the default size.</summary>
+    [Parameter]
+    public string? Size { get; set; }
+}

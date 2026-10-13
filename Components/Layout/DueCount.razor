@@ -1,0 +1,39 @@
+@inherits AuthedComponent
+@implements IDisposable
+@inject JobService Jobs
+
+@if (count > 0)
+{
+    <span class="nav-count" title="@count overdue or due today">@count</span>
+}
+
+@code {
+    private int count;
+    private Timer? timer;
+
+    protected override async Task OnReadyAsync()
+    {
+        await LoadAsync();
+        Jobs.Changed += Refresh;
+        // Reminders become due as time passes, not only when data changes.
+        timer = new Timer(_ => Refresh(), null, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
+    }
+
+    private async Task LoadAsync()
+    {
+        var endOfToday = DateTime.Now.Date.AddDays(1).ToUniversalTime();
+        count = await Jobs.GetDueCountAsync(UserId, endOfToday);
+    }
+
+    private void Refresh() => _ = InvokeAsync(async () =>
+    {
+        await LoadAsync();
+        StateHasChanged();
+    });
+
+    public void Dispose()
+    {
+        Jobs.Changed -= Refresh;
+        timer?.Dispose();
+    }
+}

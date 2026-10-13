@@ -1,0 +1,268 @@
+@page "/insights"
+@attribute [Authorize]
+@inherits AuthedComponent
+@inject JobService Jobs
+
+<PageTitle>Insights · JobTracker</PageTitle>
+
+<div class="page-head">
+    <div>
+        <h1>Insights</h1>
+        <p class="page-sub">What is working in your search, based on every application you have tracked.</p>
+    </div>
+</div>
+
+@if (apps is null)
+{
+    <div class="skeleton" style="min-height: 50vh"></div>
+}
+else if (sent == 0)
+{
+    <div class="panel">
+        <div class="empty big">
+            <Icon Name="chart" />
+            <h2>Not enough data yet</h2>
+            <p>Insights appear once you have moved at least one application to Applied.</p>
+            <div class="cta"><a class="btn btn-primary" href="board">Open the board</a></div>
+        </div>
+    </div>
+}
+else
+{
+    <div class="kpis">
+        <div class="kpi">
+            <div class="kpi-label">Applications sent</div>
+            <div class="kpi-value">@sent</div>
+            <div class="kpi-foot">@apps.Count tracked in total</div>
+        </div>
+        <div class="kpi">
+            <div class="kpi-label">Reached interview</div>
+            <div class="kpi-value">@Percent(Reached(ApplicationStage.Interview), sent)</div>
+            <div class="kpi-foot">@Reached(ApplicationStage.Interview) of @sent sent</div>
+        </div>
+        <div class="kpi">
+            <div class="kpi-label">Reached offer</div>
+            <div class="kpi-value">@Percent(Reached(ApplicationStage.Offer), sent)</div>
+            <div class="kpi-foot">@Reached(ApplicationStage.Offer) of @sent sent</div>
+        </div>
+        <div class="kpi">
+            <div class="kpi-label">Rejected</div>
+            <div class="kpi-value">@Percent(rejected, sent)</div>
+            <div class="kpi-foot">@rejected of @sent sent</div>
+        </div>
+    </div>
+
+    <div class="grid-2">
+        <section class="panel">
+            <div class="panel-head">
+                <h2>Conversion funnel</h2>
+            </div>
+            <p class="panel-note">How many applications got at least this far, and the share kept from the step before</p>
+            <div class="panel-body">
+                <div class="funnel">
+                    @for (var i = 0; i < Display.PipelineStages.Length; i++)
+                    {
+                        var stage = Display.PipelineStages[i];
+                        var count = Reached(stage);
+                        var previous = i == 0 ? count : Reached(Display.PipelineStages[i - 1]);
+                        <div class="funnel-row" title="@stage.Label(): @count">
+                            <span class="label">@stage.Label()</span>
+                            <div>
+                                <div class="funnel-bar" style="width: @(100 * count / sent)%"></div>
+                            </div>
+                            <span class="value">
+                                @count
+                                @if (i > 0)
+                                {
+                                    <small>@Percent(count, previous)</small>
+                                }
+                            </span>
+                        </div>
+                    }
+                </div>
+            </div>
+        </section>
+
+        <section class="panel">
+            <div class="panel-head">
+                <h2>Interview rate by source</h2>
+            </div>
+            <p class="panel-note">Share of sent applications from each source that reached an interview</p>
+            <div class="panel-body">
+                <div class="hbar-list">
+                    @foreach (var source in sources)
+                    {
+                        <div class="hbar" title="@source.Name: @source.Interviews of @source.Sent reached interview">
+                            <span class="hbar-label">@source.Name</span>
+                            <div class="hbar-track">
+                                @if (source.Interviews > 0)
+                                {
+                                    <div class="hbar-fill" style="width: @(100 * source.Interviews / source.Sent)%"></div>
+                                }
+                            </div>
+                            <span class="hbar-value">@Percent(source.Interviews, source.Sent)<small>@source.Interviews of @source.Sent</small></span>
+                        </div>
+                    }
+                </div>
+            </div>
+        </section>
+
+        <section class="panel">
+            <div class="panel-head">
+                <h2>Your activity</h2>
+            </div>
+            <p class="panel-note">Updates you logged per day over the last 30 days (@activityTotal in total)</p>
+            <div class="panel-body">
+                <div class="vbars" role="img" aria-label="Updates logged per day over the last 30 days">
+                    @foreach (var day in days)
+                    {
+                        <div class="vbar">
+                            <span class="tip">@day.Date.ToString("ddd d MMM"): @day.Count @(day.Count == 1 ? "update" : "updates")</span>
+                            <div class="vbar-fill" style="height: @(100 * day.Count / dayMax)%"></div>
+                        </div>
+                    }
+                </div>
+                <div class="d-flex justify-content-between muted mt-1" style="font-size: .7rem" aria-hidden="true">
+                    <span>@days[0].Date.ToString("d MMM")</span>
+                    <span>Busiest day: @dayMax</span>
+                    <span>Today</span>
+                </div>
+            </div>
+        </section>
+
+        <section class="panel">
+            <div class="panel-head">
+                <h2>Waiting time by stage</h2>
+            </div>
+            <p class="panel-note">Average days your open applications have been sitting in their current stage</p>
+            <div class="panel-body">
+                <div class="hbar-list">
+                    @foreach (var wait in waits)
+                    {
+                        <div class="hbar @wait.Stage.Css()" title="@wait.Stage.Label(): @wait.Days days on average across @wait.Count">
+                            <span class="hbar-label"><span class="stage-dot"></span>@wait.Stage.Label()</span>
+                            <div class="hbar-track">
+                                @if (wait.Days > 0)
+                                {
+                                    <div class="hbar-fill" style="width: @(100 * wait.Days / waitMax)%"></div>
+                                }
+                            </div>
+                            <span class="hbar-value">@(wait.Count == 0 ? "—" : $"{wait.Days}d")<small>@wait.Count open</small></span>
+                        </div>
+                    }
+                </div>
+            </div>
+        </section>
+
+        <section class="panel">
+            <div class="panel-head">
+                <h2>Work mode</h2>
+            </div>
+            <p class="panel-note">What you are applying for</p>
+            <div class="panel-body">
+                <div class="hbar-list">
+                    @foreach (var mode in Enum.GetValues<WorkMode>())
+                    {
+                        var count = apps.Count(a => a.WorkMode == mode);
+                        <div class="hbar" title="@mode.Label(): @count">
+                            <span class="hbar-label">@mode.Label()</span>
+                            <div class="hbar-track">
+                                @if (count > 0)
+                                {
+                                    <div class="hbar-fill" style="width: @(100 * count / apps.Count)%"></div>
+                                }
+                            </div>
+                            <span class="hbar-value">@count<small>@Percent(count, apps.Count)</small></span>
+                        </div>
+                    }
+                </div>
+            </div>
+        </section>
+
+        <section class="panel">
+            <div class="panel-head">
+                <h2>Most used tags</h2>
+            </div>
+            <p class="panel-note">Themes across the roles you track</p>
+            <div class="panel-body">
+                @if (tags.Count == 0)
+                {
+                    <div class="empty">Add tags to your applications to see them here.</div>
+                }
+                else
+                {
+                    <div class="card-tags" style="gap: .45rem">
+                        @foreach (var tag in tags)
+                        {
+                            <span class="chip" style="font-size: .82rem; padding: .25rem .65rem">@tag.Key <b>@tag.Value</b></span>
+                        }
+                    </div>
+                }
+            </div>
+        </section>
+    </div>
+}
+
+@code {
+    private sealed record SourceStat(string Name, int Sent, int Interviews);
+    private sealed record Wait(ApplicationStage Stage, int Count, int Days);
+    private sealed record Day(DateTime Date, int Count);
+
+    private List<JobApplication>? apps;
+    private List<SourceStat> sources = [];
+    private List<Wait> waits = [];
+    private List<Day> days = [];
+    private List<KeyValuePair<string, int>> tags = [];
+    private int sent, rejected, activityTotal, dayMax = 1, waitMax = 1;
+
+    protected override async Task OnReadyAsync()
+    {
+        var loaded = await Jobs.GetApplicationsAsync(UserId, includeArchived: true);
+        var sentApps = loaded.Where(a => a.FurthestStage >= ApplicationStage.Applied).ToList();
+        sent = sentApps.Count;
+        rejected = sentApps.Count(a => a.Stage == ApplicationStage.Rejected);
+
+        sources = sentApps
+            .GroupBy(a => string.IsNullOrWhiteSpace(a.Source) ? "Not set" : a.Source.Trim())
+            .Select(g => new SourceStat(g.Key, g.Count(), g.Count(a => a.FurthestStage >= ApplicationStage.Interview)))
+            .OrderByDescending(s => s.Sent)
+            .Take(8)
+            .ToList();
+
+        var now = DateTime.UtcNow;
+        waits = new[] { ApplicationStage.Applied, ApplicationStage.Screening, ApplicationStage.Interview, ApplicationStage.Offer }
+            .Select(stage =>
+            {
+                var open = loaded.Where(a => a.Stage == stage && !a.IsArchived).ToList();
+                var average = open.Count == 0 ? 0 : (int)Math.Round(open.Average(a => (now - a.StageChangedAt).TotalDays));
+                return new Wait(stage, open.Count, average);
+            })
+            .ToList();
+        waitMax = Math.Max(1, waits.Max(w => w.Days));
+
+        var firstDay = DateTime.Now.Date.AddDays(-29);
+        var activity = await Jobs.GetActivitySinceAsync(UserId, firstDay.ToUniversalTime());
+        var perDay = activity.GroupBy(x => x.OccurredAt.Local().Date).ToDictionary(g => g.Key, g => g.Count());
+        days = Enumerable.Range(0, 30)
+            .Select(i => firstDay.AddDays(i))
+            .Select(date => new Day(date, perDay.GetValueOrDefault(date)))
+            .ToList();
+        activityTotal = days.Sum(d => d.Count);
+        dayMax = Math.Max(1, days.Max(d => d.Count));
+
+        tags = loaded
+            .SelectMany(a => a.TagList)
+            .GroupBy(t => t.ToLowerInvariant())
+            .Select(g => KeyValuePair.Create(g.Key, g.Count()))
+            .OrderByDescending(t => t.Value)
+            .ThenBy(t => t.Key)
+            .Take(14)
+            .ToList();
+
+        apps = loaded;
+    }
+
+    private int Reached(ApplicationStage stage) => apps!.Count(a => a.FurthestStage >= stage);
+
+    private static string Percent(int part, int whole) => whole == 0 ? "—" : $"{Math.Round(100d * part / whole)}%";
+}
