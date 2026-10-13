@@ -1,10 +1,12 @@
 using JobTracker.Models;
+using Microsoft.AspNetCore.DataProtection.EntityFrameworkCore;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 
 namespace JobTracker.Data;
 
-public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options) : IdentityDbContext<ApplicationUser>(options)
+public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options)
+    : IdentityDbContext<ApplicationUser>(options), IDataProtectionKeyContext
 {
     public DbSet<JobApplication> JobApplications => Set<JobApplication>();
 
@@ -15,6 +17,12 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<Contact> Contacts => Set<Contact>();
 
     public DbSet<ActivityEntry> Activities => Set<ActivityEntry>();
+
+    /// <summary>
+    /// Cookie and antiforgery encryption keys. Stored in the database so sign-ins survive
+    /// container restarts and scale-to-zero.
+    /// </summary>
+    public DbSet<DataProtectionKey> DataProtectionKeys => Set<DataProtectionKey>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {

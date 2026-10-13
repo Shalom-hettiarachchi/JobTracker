@@ -203,13 +203,13 @@ public class JobService(IDbContextFactory<ApplicationDbContext> dbFactory)
         }
     }
 
-    public async Task SetArchivedAsync(string userId, int id, bool archived)
+    public async Task<bool> SetArchivedAsync(string userId, int id, bool archived)
     {
         await using var db = await dbFactory.CreateDbContextAsync();
         var app = await db.JobApplications.FirstOrDefaultAsync(a => a.Id == id && a.UserId == userId);
         if (app is null || app.IsArchived == archived)
         {
-            return;
+            return app is not null;
         }
 
         app.IsArchived = archived;
@@ -222,41 +222,44 @@ public class JobService(IDbContextFactory<ApplicationDbContext> dbFactory)
         });
         await db.SaveChangesAsync();
         NotifyChanged();
+        return true;
     }
 
-    public async Task DeleteAsync(string userId, int id)
+    public async Task<bool> DeleteAsync(string userId, int id)
     {
         await using var db = await dbFactory.CreateDbContextAsync();
         var app = await db.JobApplications.FirstOrDefaultAsync(a => a.Id == id && a.UserId == userId);
         if (app is null)
         {
-            return;
+            return false;
         }
 
         db.JobApplications.Remove(app);
         await db.SaveChangesAsync();
         NotifyChanged();
+        return true;
     }
 
     // ---------- Notes ----------
 
-    public async Task AddNoteAsync(string userId, int applicationId, NoteKind kind, string content)
+    public async Task<ApplicationNote?> AddNoteAsync(string userId, int applicationId, NoteKind kind, string content)
     {
         await using var db = await dbFactory.CreateDbContextAsync();
         var app = await db.JobApplications.FirstOrDefaultAsync(a => a.Id == applicationId && a.UserId == userId);
         if (app is null)
         {
-            return;
+            return null;
         }
 
         var now = DateTime.UtcNow;
-        db.Notes.Add(new ApplicationNote
+        var note = new ApplicationNote
         {
             JobApplicationId = app.Id,
             Kind = kind,
             Content = content.Trim(),
             CreatedAt = now
-        });
+        };
+        db.Notes.Add(note);
         db.Activities.Add(new ActivityEntry
         {
             JobApplicationId = app.Id,
@@ -267,20 +270,22 @@ public class JobService(IDbContextFactory<ApplicationDbContext> dbFactory)
         app.UpdatedAt = now;
         await db.SaveChangesAsync();
         NotifyChanged();
+        return note;
     }
 
-    public async Task DeleteNoteAsync(string userId, int noteId)
+    public async Task<bool> DeleteNoteAsync(string userId, int noteId)
     {
         await using var db = await dbFactory.CreateDbContextAsync();
         var note = await db.Notes.FirstOrDefaultAsync(n => n.Id == noteId && n.JobApplication!.UserId == userId);
         if (note is null)
         {
-            return;
+            return false;
         }
 
         db.Notes.Remove(note);
         await db.SaveChangesAsync();
         NotifyChanged();
+        return true;
     }
 
     // ---------- Reminders ----------
@@ -298,23 +303,24 @@ public class JobService(IDbContextFactory<ApplicationDbContext> dbFactory)
             .ToListAsync();
     }
 
-    public async Task AddReminderAsync(string userId, int applicationId, string title, DateTime dueAtUtc)
+    public async Task<Reminder?> AddReminderAsync(string userId, int applicationId, string title, DateTime dueAtUtc)
     {
         await using var db = await dbFactory.CreateDbContextAsync();
         var app = await db.JobApplications.FirstOrDefaultAsync(a => a.Id == applicationId && a.UserId == userId);
         if (app is null)
         {
-            return;
+            return null;
         }
 
         var now = DateTime.UtcNow;
-        db.Reminders.Add(new Reminder
+        var reminder = new Reminder
         {
             JobApplicationId = app.Id,
             Title = title.Trim(),
             DueAt = dueAtUtc,
             CreatedAt = now
-        });
+        };
+        db.Reminders.Add(reminder);
         db.Activities.Add(new ActivityEntry
         {
             JobApplicationId = app.Id,
@@ -324,15 +330,16 @@ public class JobService(IDbContextFactory<ApplicationDbContext> dbFactory)
         });
         await db.SaveChangesAsync();
         NotifyChanged();
+        return reminder;
     }
 
-    public async Task SetReminderDoneAsync(string userId, int reminderId, bool done)
+    public async Task<bool> SetReminderDoneAsync(string userId, int reminderId, bool done)
     {
         await using var db = await dbFactory.CreateDbContextAsync();
         var reminder = await FindReminderAsync(db, userId, reminderId);
         if (reminder is null || reminder.IsDone == done)
         {
-            return;
+            return reminder is not null;
         }
 
         reminder.IsDone = done;
@@ -349,16 +356,17 @@ public class JobService(IDbContextFactory<ApplicationDbContext> dbFactory)
 
         await db.SaveChangesAsync();
         NotifyChanged();
+        return true;
     }
 
     /// <summary>Pushes a reminder back by <paramref name="by"/>, counted from now if it is already overdue.</summary>
-    public async Task SnoozeReminderAsync(string userId, int reminderId, TimeSpan by)
+    public async Task<bool> SnoozeReminderAsync(string userId, int reminderId, TimeSpan by)
     {
         await using var db = await dbFactory.CreateDbContextAsync();
         var reminder = await FindReminderAsync(db, userId, reminderId);
         if (reminder is null)
         {
-            return;
+            return false;
         }
 
         var due = DateTime.SpecifyKind(reminder.DueAt, DateTimeKind.Utc);
@@ -366,20 +374,22 @@ public class JobService(IDbContextFactory<ApplicationDbContext> dbFactory)
         reminder.DueAt = from + by;
         await db.SaveChangesAsync();
         NotifyChanged();
+        return true;
     }
 
-    public async Task DeleteReminderAsync(string userId, int reminderId)
+    public async Task<bool> DeleteReminderAsync(string userId, int reminderId)
     {
         await using var db = await dbFactory.CreateDbContextAsync();
         var reminder = await FindReminderAsync(db, userId, reminderId);
         if (reminder is null)
         {
-            return;
+            return false;
         }
 
         db.Reminders.Remove(reminder);
         await db.SaveChangesAsync();
         NotifyChanged();
+        return true;
     }
 
     private static Task<Reminder?> FindReminderAsync(ApplicationDbContext db, string userId, int reminderId) =>
@@ -387,18 +397,19 @@ public class JobService(IDbContextFactory<ApplicationDbContext> dbFactory)
 
     // ---------- Contacts ----------
 
-    public async Task SaveContactAsync(string userId, int applicationId, Contact contact)
+    public async Task<Contact?> SaveContactAsync(string userId, int applicationId, Contact contact)
     {
         await using var db = await dbFactory.CreateDbContextAsync();
         var ownsApplication = await db.JobApplications.AnyAsync(a => a.Id == applicationId && a.UserId == userId);
         if (!ownsApplication)
         {
-            return;
+            return null;
         }
 
+        Contact? saved;
         if (contact.Id == 0)
         {
-            db.Contacts.Add(new Contact
+            saved = new Contact
             {
                 JobApplicationId = applicationId,
                 Name = contact.Name.Trim(),
@@ -406,7 +417,8 @@ public class JobService(IDbContextFactory<ApplicationDbContext> dbFactory)
                 Email = contact.Email,
                 Phone = contact.Phone,
                 LinkedIn = contact.LinkedIn
-            });
+            };
+            db.Contacts.Add(saved);
         }
         else
         {
@@ -414,7 +426,7 @@ public class JobService(IDbContextFactory<ApplicationDbContext> dbFactory)
                 c => c.Id == contact.Id && c.JobApplicationId == applicationId);
             if (existing is null)
             {
-                return;
+                return null;
             }
 
             existing.Name = contact.Name.Trim();
@@ -422,25 +434,28 @@ public class JobService(IDbContextFactory<ApplicationDbContext> dbFactory)
             existing.Email = contact.Email;
             existing.Phone = contact.Phone;
             existing.LinkedIn = contact.LinkedIn;
+            saved = existing;
         }
 
         await db.SaveChangesAsync();
         NotifyChanged();
+        return saved;
     }
 
-    public async Task DeleteContactAsync(string userId, int contactId)
+    public async Task<bool> DeleteContactAsync(string userId, int contactId)
     {
         await using var db = await dbFactory.CreateDbContextAsync();
         var contact = await db.Contacts.FirstOrDefaultAsync(
             c => c.Id == contactId && c.JobApplication!.UserId == userId);
         if (contact is null)
         {
-            return;
+            return false;
         }
 
         db.Contacts.Remove(contact);
         await db.SaveChangesAsync();
         NotifyChanged();
+        return true;
     }
 
     // ---------- Activity ----------

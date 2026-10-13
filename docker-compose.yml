@@ -1,0 +1,35 @@
+# Local stack: SQL Server + the app.
+#   docker compose up --build        -> http://localhost:8080
+#   docker compose up -d db          -> just the database, for `dotnet run`
+services:
+  db:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    environment:
+      # Starting this container accepts the SQL Server Developer edition licence terms.
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD:-Local_Dev_Passw0rd!}
+    ports:
+      - "1433:1433"
+    volumes:
+      - mssql-data:/var/opt/mssql
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"$$MSSQL_SA_PASSWORD\" -C -b -Q \"SELECT 1\" || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  app:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      ConnectionStrings__DefaultConnection: Server=db,1433;Database=JobTracker;User Id=sa;Password=${MSSQL_SA_PASSWORD:-Local_Dev_Passw0rd!};TrustServerCertificate=True
+      # Times are shown in the server's time zone; set this to yours.
+      TZ: ${TZ:-UTC}
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  mssql-data:
